@@ -1,32 +1,44 @@
 #!/bin/bash
-# Actualizar el sistema e instalar paquetes base
 apt-get update -y
-apt-get install postgresql postgresql-contrib awscli curl -y
+apt-get install postgresql postgresql-contrib awscli curl git -y
 
 # --- CONFIGURACIÓN DE HOSTNAME DINÁMICO ---
 hostnamectl set-hostname "${hostnameDatabase}"
 echo "127.0.1.1 ${hostnameDatabase}" >> /etc/hosts
 
-# Instalar Tailscale de forma segura usando su script oficial
+# Instalar e iniciar Tailscale
 curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up --authkey="${tailscale_key}" --accept-routes --advertise-tags=tag:database &
 
-# Configurar Postgres para escuchar tráfico de red
+# Configurar puerto y escucha en postgresql.conf de forma dinámica
 echo "listen_addresses = '*'" >> /etc/postgresql/14/main/postgresql.conf
+if [ "${db_port}" != "5432" ]; then
+    echo "port = ${db_port}" >> /etc/postgresql/14/main/postgresql.conf
+fi
 
-# PERMISOS DE RED ACCESO: 
-# 1. Rango VPC local de AWS
+# PERMISOS DE RED (pg_hba.conf)
 echo "host    all             all             10.0.0.0/16            md5" >> /etc/postgresql/14/main/pg_hba.conf
-# 2. Rango virtual interno Tailscale
 echo "host    all             all             100.64.0.0/10           md5" >> /etc/postgresql/14/main/pg_hba.conf
-# 3. RANGO DE TU CASA (Requerido para que responda a tu Kali a través de pfSense)
-echo "host    all             all             192.168.1.0/24          md5" >> /etc/postgresql/14/main/pg_hba.conf
 
-# Reiniciar Postgres para aplicar cambios de red
 systemctl restart postgresql
 
-# Crear el Usuario y la Base de Datos escapando las comillas para preservar mayúsculas/minúsculas
-sudo -u postgres psql -c "CREATE USER \"${db_user}\" WITH PASSWORD '${db_password}';"
-sudo -u postgres psql -c "CREATE DATABASE \"${db_name}\" OWNER \"${db_user}\";"
+# Crear el Usuario y la Base de Datos con parámetros dinámicos
+sudo -u postgres psql -p "${db_port}" -c "CREATE USER \"${db_user}\" WITH PASSWORD '${db_password}';"
+sudo -u postgres psql -p "${db_port}" -c "CREATE DATABASE \"${db_name}\" OWNER \"${db_user}\";"
+sudo -u postgres psql -p "${db_port}" -c "GRANT ALL PRIVILEGES ON DATABASE \"${db_name}\" TO \"${db_user}\";"
 
-# Conectarse automáticamente a Tailscale sin intervención manual
-tailscale up --authkey="${tailscale_key}" --hostname="${hostnameDatabase}"
+# --- DESPLIEGUE E INYECCIÓN DEL SCRIPT SQL DESDE GITHUB ---
+rm -rf /tmp/aerolinia
+git clone "${github_repo_url}" /tmp/aerolinia
+
+if [ -f /tmp/aerolinia/sql/aerolinia.sql ]; then
+    # Importar el dump original
+    sudo -u postgres psql -p "${db_port}" -d "${db_name}" -f /tmp/aerolinia/sql/aerolinia.sql
+    
+    # Reasignar el OWNER de las tablas al Cyberuser actual de Terraform
+    sudo -u postgres psql -p "${db_port}" -d "${db_name}" -c "ALTER TABLE public.pasajeros OWNER TO \"${db_user}\";"
+    sudo -u postgres psql -p "${db_port}" -d "${db_name}" -c "ALTER SEQUENCE public.pasajeros_id_seq OWNER TO \"${db_user}\";"
+fi
+
+# --- LIMPIEZA ABSOLUTA DE ARCHIVOS TEMPORALES ---
+rm -rf /tmp/aerolinia

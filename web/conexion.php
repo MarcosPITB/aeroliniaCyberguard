@@ -1,10 +1,9 @@
 <?php
-// conexion.php
-$host = "10.0.8.5"; // IP de tu servidor de Base de Datos
-$port = "5432";
-$dbname = "aerolinea";
-$user = "pau";
-$password = "buenosdias"; // La contraseña que pusiste en el script SQL
+$host     = getenv('DB_HOST');
+$port     = getenv('DB_PORT');
+$dbname   = getenv('DB_NAME');
+$user     = getenv('DB_USER');
+$password = getenv('DB_PASSWORD');
 
 try {
     $dsn = "pgsql:host=$host;port=$port;dbname=$dbname;";

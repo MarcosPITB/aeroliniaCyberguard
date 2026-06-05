@@ -4,36 +4,42 @@
 
 variable "tailscale_auth_key" {
   type        = string
-  description = "La Auth Key generada en el panel de Tailscale para registrar maquinas automaticamente"
+  description = "La Auth Key generada en el panel de Tailscale"
   sensitive   = true
 }
 
 variable "db_name" {
   type        = string
-  description = "Nombre de la base de datos de PostgreSQL"
   default     = "mi_base_datos"
 }
 
 variable "db_user" {
   type        = string
-  description = "Usuario administrador de la base de datos"
   default     = "admin_user"
 }
 
 variable "db_password" {
   type        = string
-  description = "Contrasena para el usuario de la base de datos"
   sensitive   = true
+}
+
+variable "db_port" {
+  type        = string
+  description = "Puerto de escucha de la base de datos PostgreSQL"
+  default     = "5432"
 }
 
 variable "hostnameServer" {
   type        = string
-  description = "Nombre servidor Nginx"
 }
 
 variable "hostnameDatabase" {
   type        = string
-  description = "Nombre de la Base de Datos"
+}
+
+variable "github_repo_url" {
+  type        = string
+  description = "URL del repositorio de GitHub"
 }
 
 # ==========================================
@@ -75,36 +81,31 @@ resource "aws_subnet" "private_sub" {
 }
 
 # ==========================================
-# 4. COMPONENTES NAT GATEWAY (Salida a Internet Segura)
+# 4. COMPONENTES NAT GATEWAY
 # ==========================================
 
-# IP Elástica para el NAT Gateway
 resource "aws_eip" "nat_eip" {
   domain     = "vpc"
   depends_on = [aws_internet_gateway.gw]
   tags       = { Name = "nat-gateway-eip" }
 }
 
-# NAT Gateway (Asignado en la subred pública)
 resource "aws_nat_gateway" "nat_gw" {
   allocation_id = aws_eip.nat_eip.id
   subnet_id     = aws_subnet.public_sub.id
-
-  tags       = { Name = "main-nat-gateway" }
-  depends_on = [aws_internet_gateway.gw]
+  tags          = { Name = "main-nat-gateway" }
+  depends_on    = [aws_internet_gateway.gw]
 }
 
 # ==========================================
 # 5. TABLAS DE ENRUTAMIENTO Y ASOCIACIONES
 # ==========================================
 
-# --- TABLA PÚBLICA ---
 resource "aws_route_table" "public_rt" {
   vpc_id = aws_vpc.main.id
   tags   = { Name = "public-route-table" }
 }
 
-# Ruta explícita de la Tabla Pública hacia el Internet Gateway
 resource "aws_route" "public_internet_access" {
   route_table_id         = aws_route_table.public_rt.id
   destination_cidr_block = "0.0.0.0/0"
@@ -116,13 +117,11 @@ resource "aws_route_table_association" "public_assoc" {
   route_table_id = aws_route_table.public_rt.id
 }
 
-# --- TABLA PRIVADA ---
 resource "aws_route_table" "private_rt" {
   vpc_id = aws_vpc.main.id
   tags   = { Name = "private-route-table" }
 }
 
-# Ruta explícita de la Tabla Privada hacia el NAT Gateway
 resource "aws_route" "private_nat_access" {
   route_table_id         = aws_route_table.private_rt.id
   destination_cidr_block = "0.0.0.0/0"
@@ -182,7 +181,6 @@ resource "aws_security_group" "postgres_sg" {
   description = "Permitir PostgreSQL desde Nginx y red Tailscale sin Ping"
   vpc_id      = aws_vpc.main.id
 
-  # Conexión local interna VPC desde Nginx
   ingress {
     description     = "PostgreSQL desde Nginx"
     from_port       = 5432
@@ -191,7 +189,6 @@ resource "aws_security_group" "postgres_sg" {
     security_groups = [aws_security_group.nginx_sg.id]
   }
 
-  # Acceso directo al puerto TCP 5432 desde la interfaz interna de Tailscale
   ingress {
     description = "PostgreSQL desde la red Tailscale"
     from_port   = 5432
@@ -200,7 +197,6 @@ resource "aws_security_group" "postgres_sg" {
     cidr_blocks = ["100.64.0.0/10"]
   }
 
-  # Tráfico de túnel UDP internamente desde la VPC
   ingress {
     description = "Tailscale UDP interno desde la VPC"
     from_port   = 41641
@@ -222,9 +218,9 @@ resource "aws_security_group" "postgres_sg" {
 # ==========================================
 # 7. PERFIL DE IAM DE LABORATORIO (AWS ACADEMY)
 # ==========================================
-
-# Mapeamos directamente el ARN verificado del laboratorio para evitar consultas fallidas de la API
-# arn:aws:iam::786256571087:instance-profile/LabInstanceProfile
+data "aws_iam_instance_profile" "ec2_profile" {
+  name = "LabInstanceProfile"
+}
 
 # ==========================================
 # 8. INSTANCIAS EC2 (UBUNTU 22.04 LTS)
@@ -232,7 +228,7 @@ resource "aws_security_group" "postgres_sg" {
 
 data "aws_ami" "ubuntu" {
   most_recent = true
-  owners      = ["099720109477"] # Canonical
+  owners      = ["099720109477"]
 
   filter {
     name   = "name"
@@ -246,16 +242,20 @@ resource "aws_instance" "nginx_server" {
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.public_sub.id
   vpc_security_group_ids = [aws_security_group.nginx_sg.id]
-  iam_instance_profile   = "LabInstanceProfile"
+  iam_instance_profile   = data.aws_iam_instance_profile.ec2_profile.name
 
   user_data = templatefile("${path.module}/setup_nginx.sh", {
-    tailscale_key  = var.tailscale_auth_key
-    hostnameServer = var.hostnameServer
+    tailscale_key    = var.tailscale_auth_key
+    hostnameServer   = var.hostnameServer
+    hostnameDatabase = var.hostnameDatabase
+    github_repo_url  = var.github_repo_url
+    db_name          = var.db_name
+    db_user          = var.db_user
+    db_password      = var.db_password
+    db_port          = var.db_port
   })
 
-  tags = { Name = "Nginx-Public-Server" }
-
-  # Fuerza a que Nginx espere a tener acceso real a internet mediante la ruta pública
+  tags       = { Name = "Nginx-Public-Server" }
   depends_on = [aws_route.public_internet_access]
 }
 
@@ -265,19 +265,19 @@ resource "aws_instance" "postgres_server" {
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.private_sub.id
   vpc_security_group_ids = [aws_security_group.postgres_sg.id]
-  iam_instance_profile   = "LabInstanceProfile"
+  iam_instance_profile   = data.aws_iam_instance_profile.ec2_profile.name
 
   user_data = templatefile("${path.module}/setup_postgres.sh", {
     tailscale_key    = var.tailscale_auth_key
     db_name          = var.db_name
     db_user          = var.db_user
     db_password      = var.db_password
+    db_port          = var.db_port
     hostnameDatabase = var.hostnameDatabase
+    github_repo_url  = var.github_repo_url
   })
 
-  tags = { Name = "Postgres-Private-DB" }
-
-  # CAMBIO CRUCIAL: Fuerza a que Postgres espere a que la ruta privada hacia el NAT Gateway esté activa
+  tags       = { Name = "Postgres-Private-DB" }
   depends_on = [aws_route.private_nat_access]
 }
 
