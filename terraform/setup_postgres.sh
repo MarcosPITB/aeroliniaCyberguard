@@ -17,8 +17,8 @@ if [ "${db_port}" != "5432" ]; then
 fi
 
 # PERMISOS DE RED (pg_hba.conf)
-echo "host    all             all             10.0.0.0/16            md5" >> /etc/postgresql/14/main/pg_hba.conf
-echo "host    all             all             100.64.0.0/10           md5" >> /etc/postgresql/14/main/pg_hba.conf
+echo "host    all             all             10.0.0.0/16             scram-sha-256" >> /etc/postgresql/14/main/pg_hba.conf
+echo "host    all             all             100.64.0.0/10           scram-sha-256" >> /etc/postgresql/14/main/pg_hba.conf
 
 systemctl restart postgresql
 
