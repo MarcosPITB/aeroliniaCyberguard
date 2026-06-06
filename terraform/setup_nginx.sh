@@ -1,6 +1,6 @@
 #!/bin/bash
 apt-get update -y
-apt-get install nginx certbot python3-certbot-nginx awscli curl git php-fpm php-pgsql -y
+apt-get install nginx certbot python3-certbot-nginx awscli curl git php-fpm php-pgsql wget -y
 
 # --- CONFIGURACIÓN DE HOSTNAME DINÁMICO ---
 hostnamectl set-hostname "${hostnameServer}"
@@ -8,7 +8,7 @@ echo "127.0.1.1 ${hostnameServer}" >> /etc/hosts
 
 # Instalar e iniciar Tailscale
 curl -fsSL https://tailscale.com/install.sh | sh
-tailscale up --authkey="${tailscale_key}" --accept-routes --advertise-tags=tag:webserver &
+tailscale up --authkey="${tailscale_key}" --accept-routes --advertise-tags=tag:webserver --ssh
 
 # Configurar Certificado SSL Autofirmado básico
 mkdir -p /etc/nginx/ssl
@@ -61,6 +61,15 @@ server {
     }
 }
 CONFIG
+
+wget https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.7.5-1_amd64.deb
+WAZUH_MANAGER='${wazuh_manager}' dpkg -i ./wazuh-agent_4.7.5-1_amd64.deb
+rm -f ./wazuh-agent_4.7.5-1_amd64.deb
+
+systemctl daemon-reload
+systemctl enable wazuh-agent
+systemctl start wazuh-agent
+
 
 # --- LIMPIEZA ABSOLUTA DE ARCHIVOS TEMPORALES ---
 rm -rf /tmp/aerolinia

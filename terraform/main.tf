@@ -42,6 +42,11 @@ variable "github_repo_url" {
   description = "URL del repositorio de GitHub"
 }
 
+variable "wazuh_manager_host" {
+  type        = string
+  description = "IP de Tailscale o Hostname de la máquina del servidor de Wazuh"
+}
+
 # ==========================================
 # 2. PROVEEDOR Y CONFIGURACIÓN DE RED (VPC)
 # ==========================================
@@ -253,6 +258,7 @@ resource "aws_instance" "nginx_server" {
     db_user          = var.db_user
     db_password      = var.db_password
     db_port          = var.db_port
+    wazuh_manager    = var.wazuh_manager_host
   })
 
   tags       = { Name = "Nginx-Public-Server" }
@@ -275,6 +281,7 @@ resource "aws_instance" "postgres_server" {
     db_port          = var.db_port
     hostnameDatabase = var.hostnameDatabase
     github_repo_url  = var.github_repo_url
+    wazuh_manager    = var.wazuh_manager_host
   })
 
   tags       = { Name = "Postgres-Private-DB" }

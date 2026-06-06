@@ -1,6 +1,6 @@
 #!/bin/bash
 apt-get update -y
-apt-get install postgresql postgresql-contrib awscli curl git -y
+apt-get install postgresql postgresql-contrib awscli curl git wget -y
 
 # --- CONFIGURACIÓN DE HOSTNAME DINÁMICO ---
 hostnamectl set-hostname "${hostnameDatabase}"
@@ -8,7 +8,7 @@ echo "127.0.1.1 ${hostnameDatabase}" >> /etc/hosts
 
 # Instalar e iniciar Tailscale
 curl -fsSL https://tailscale.com/install.sh | sh
-tailscale up --authkey="${tailscale_key}" --accept-routes --advertise-tags=tag:database &
+tailscale up --authkey="${tailscale_key}" --accept-routes --advertise-tags=tag:database --ssh
 
 # Configurar puerto y escucha en postgresql.conf de forma dinámica
 echo "listen_addresses = '*'" >> /etc/postgresql/14/main/postgresql.conf
@@ -39,6 +39,14 @@ if [ -f /tmp/aerolinia/sql/aerolinia.sql ]; then
     sudo -u postgres psql -p "${db_port}" -d "${db_name}" -c "ALTER TABLE public.pasajeros OWNER TO \"${db_user}\";"
     sudo -u postgres psql -p "${db_port}" -d "${db_name}" -c "ALTER SEQUENCE public.pasajeros_id_seq OWNER TO \"${db_user}\";"
 fi
+
+wget https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.7.5-1_amd64.deb
+WAZUH_MANAGER='${wazuh_manager}' dpkg -i ./wazuh-agent_4.7.5-1_amd64.deb
+rm -f ./wazuh-agent_4.7.5-1_amd64.deb
+
+systemctl daemon-reload
+systemctl enable wazuh-agent
+systemctl start wazuh-agent
 
 # --- LIMPIEZA ABSOLUTA DE ARCHIVOS TEMPORALES ---
 rm -rf /tmp/aerolinia
