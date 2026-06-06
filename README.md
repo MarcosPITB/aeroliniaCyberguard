@@ -80,7 +80,7 @@ Estos parámetros los cogera del **terraform.tfvars** de antes
 
 ---
 
-# Script de Restic
+# Scripts de Restic
 
 Esta parte contiene los scripts de Restic para realizar backups la base de datos PostgreSQL.
 
