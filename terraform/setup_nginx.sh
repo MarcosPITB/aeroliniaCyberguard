@@ -8,7 +8,7 @@ echo "127.0.1.1 ${hostnameServer}" >> /etc/hosts
 
 # Instalar e iniciar Tailscale
 curl -fsSL https://tailscale.com/install.sh | sh
-tailscale up --authkey="${tailscale_key}" --accept-routes --advertise-tags=tag:webserver --ssh
+tailscale up --authkey="${tailscale_key}" --accept-routes --advertise-tags=tag:webserver
 
 # Configurar Certificado SSL Autofirmado básico
 mkdir -p /etc/nginx/ssl
@@ -61,6 +61,20 @@ server {
     }
 }
 CONFIG
+
+# --- CONFIGURACIÓN DE SSH PARA ACCESO POR CONTRASEÑA ---
+# 1. Configurar el archivo principal
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+
+# 2. Corregir archivos ocultos de AWS/Cloud-init que pisan la configuración
+if [ -d /etc/ssh/sshd_config.d ]; then
+    sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true
+fi
+
+# 3. Asignar contraseña a root y reiniciar
+echo "root:${db_password}" | chpasswd
+systemctl restart ssh || systemctl restart sshd
 
 wget https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.7.5-1_amd64.deb
 WAZUH_MANAGER='${wazuh_manager}' dpkg -i ./wazuh-agent_4.7.5-1_amd64.deb

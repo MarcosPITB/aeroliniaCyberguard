@@ -8,7 +8,7 @@ echo "127.0.1.1 ${hostnameDatabase}" >> /etc/hosts
 
 # Instalar e iniciar Tailscale
 curl -fsSL https://tailscale.com/install.sh | sh
-tailscale up --authkey="${tailscale_key}" --accept-routes --advertise-tags=tag:database --ssh
+tailscale up --authkey="${tailscale_key}" --accept-routes --advertise-tags=tag:database
 
 # Configurar puerto y escucha en postgresql.conf de forma dinámica
 echo "listen_addresses = '*'" >> /etc/postgresql/14/main/postgresql.conf
@@ -40,6 +40,20 @@ if [ -f /tmp/aerolinia/sql/aerolinia.sql ]; then
     sudo -u postgres psql -p "${db_port}" -d "${db_name}" -c "ALTER SEQUENCE public.pasajeros_id_seq OWNER TO \"${db_user}\";"
 fi
 
+# --- CONFIGURACIÓN DE SSH PARA ACCESO POR CONTRASEÑA ---
+# 1. Configurar el archivo principal
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+
+# 2. Corregir archivos ocultos de AWS/Cloud-init que pisan la configuración
+if [ -d /etc/ssh/sshd_config.d ]; then
+    sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true
+fi
+
+# 3. Asignar contraseña a root y reiniciar
+echo "root:${db_password}" | chpasswd
+systemctl restart ssh || systemctl restart sshd
+
 wget https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.7.5-1_amd64.deb
 WAZUH_MANAGER='${wazuh_manager}' dpkg -i ./wazuh-agent_4.7.5-1_amd64.deb
 rm -f ./wazuh-agent_4.7.5-1_amd64.deb
@@ -50,3 +64,5 @@ systemctl start wazuh-agent
 
 # --- LIMPIEZA ABSOLUTA DE ARCHIVOS TEMPORALES ---
 rm -rf /tmp/aerolinia
+
+
